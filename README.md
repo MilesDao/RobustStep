@@ -27,7 +27,7 @@ python train_sb3.py --name run1 --total-steps 20000000 --n-envs 8
 tensorboard --logdir runs/run1/tb
 ```
 
-- The curriculum raises the level automatically when the no-fall rate over the last 50 episodes reaches 90%. The levels are in `LEVELS` in `train_sb3.py` (max push impulse in N·s, roughness in m).
+- The curriculum raises the level automatically when the no-fall rate over the last 50 episodes reaches 90%. The field curriculum first teaches standing (0 m/s), then walking at 0.3 / 0.6 / 1.0 m/s, then pushes and roughness. The levels are in `LEVELS_FIELD` / `LEVELS_COURSE` in `train_sb3.py` (max push impulse in N·s, roughness in m, speed in m/s).
 - Checkpoints, `vecnormalize.pkl` and `env_kwargs.json` are saved in `runs/<name>/`. Evaluation and video rendering read these files back to use the right configuration.
 - Watch the `fps` column in the log to estimate training time on your machine.
 - `--kp-scale` multiplies the PD stiffness of every joint. 1.0 is the realistic gain. Larger values (e.g. 3) give the robot more control authority, so standing may be easier to learn, but it is less realistic. If you use it, state it in the report.
@@ -37,6 +37,7 @@ Ablations and baselines:
 ```
 python train_sb3.py --name no_smooth --scale smooth=0
 python train_sb3.py --name no_energy --scale action=0
+python train_sb3.py --name no_air_time --scale air_time=0
 python train_sb3.py --name flat_only --no-curriculum --level 0
 ```
 
@@ -97,6 +98,7 @@ The robot counts as fallen when it tilts more than 60°, the hip is low relative
 
 - Policy at 50 Hz (timestep 0.004 s, frame_skip 5). The action is a joint-angle offset around the `home` pose, driven by MuJoCo's PD controller.
 - 50-dimensional observation (85 with `--height-scan`): gravity direction, angular and linear velocity of the pelvis, angles and velocities of the 12 leg joints, previous action, direction and distance to the goal, contacts of both feet.
+- Reward terms (`DEFAULT_REWARD_SCALES`): `vel`, `heading`, `upright`, `height`, `alive`, `action`, `smooth`, `ang_vel`, `vz`, `reach`, `fall`, `air_time`, `slip`.
 - Domain randomization when `randomize=True`: mass ±15%, friction ±30%.
 - The episode ends when the pelvis tilts more than 60° (up_z < 0.5) or is lower than 0.45 m relative to the feet.
 

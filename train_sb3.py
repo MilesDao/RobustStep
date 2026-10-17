@@ -31,17 +31,20 @@ from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNorm
 
 from biped_env import BipedEnv
 
-# (push_max N*s, terrain). For scene field, terrain is roughness (m). For scene course, it is difficulty [0, 1].
-# Adjust based on actual results.
+# (push_max N*s, terrain, speed m/s). For scene field, terrain is roughness (m). For scene course, it is difficulty [0, 1].
+# The field curriculum first teaches standing, then walking speeds, then pushes and roughness. Adjust based on actual results.
 LEVELS_FIELD = [
-    (0.0, 0.00),
-    (10.0, 0.00),
-    (25.0, 0.02),
-    (40.0, 0.04),
-    (60.0, 0.06),
-    (80.0, 0.08),
+    (0.0, 0.00, 0.0),    # stand still
+    (0.0, 0.00, 0.3),
+    (0.0, 0.00, 0.6),
+    (0.0, 0.00, 1.0),
+    (10.0, 0.00, 1.0),
+    (25.0, 0.02, 1.0),
+    (40.0, 0.04, 1.0),
+    (60.0, 0.06, 1.0),
+    (80.0, 0.08, 1.0),
 ]
-LEVELS_COURSE = [(0.0, 0.0), (0.0, 0.2), (0.0, 0.4), (0.0, 0.6), (0.0, 0.8), (0.0, 1.0)]
+LEVELS_COURSE = [(0.0, lv, 1.0) for lv in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)]  # resumed from a walking policy
 
 
 def make_env(rank, seed, env_kwargs):
@@ -64,10 +67,10 @@ class CurriculumCallback(BaseCallback):
         self.min_episodes = min_episodes
 
     def _apply(self):
-        push, terrain = self.levels[self.level]
-        self.training_env.env_method("set_difficulty", push, terrain)
+        push, terrain, speed = self.levels[self.level]
+        self.training_env.env_method("set_difficulty", push, terrain, speed)
         if self.verbose:
-            print(f"[curriculum] level {self.level}: push_max={push} N*s, terrain={terrain}", flush=True)
+            print(f"[curriculum] level {self.level}: push_max={push} N*s, terrain={terrain}, speed={speed} m/s", flush=True)
 
     def _on_training_start(self):
         self._apply()
@@ -78,6 +81,7 @@ class CurriculumCallback(BaseCallback):
     def _on_rollout_end(self):
         buf = self.model.ep_info_buffer
         self.logger.record("curriculum/level", self.level)
+        self.logger.record("curriculum/speed", self.levels[self.level][2])
         if len(buf) < self.min_episodes or self.level >= len(self.levels) - 1:
             return
         recent = list(buf)[-self.min_episodes:]
@@ -162,9 +166,9 @@ def main():
         save_freq=max(args.save_every // args.n_envs, 1), save_path=out_dir,
         name_prefix="ckpt", save_vecnormalize=True)]
     if args.no_curriculum:
-        push, terrain = levels[args.level]
-        venv.env_method("set_difficulty", push, terrain)
-        print(f"[fixed] level {args.level}: push_max={push}, terrain={terrain}", flush=True)
+        push, terrain, speed = levels[args.level]
+        venv.env_method("set_difficulty", push, terrain, speed)
+        print(f"[fixed] level {args.level}: push_max={push}, terrain={terrain}, speed={speed} m/s", flush=True)
     else:
         callbacks.append(CurriculumCallback(levels, start_level=args.start_level))
 
