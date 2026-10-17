@@ -8,3 +8,4 @@ matplotlib
 imageio
 imageio-ffmpeg
 tensorboard
+pytest

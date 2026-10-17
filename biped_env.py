@@ -56,7 +56,7 @@ DEFAULT_REWARD_SCALES = dict(
     heading=0.3,   # torso faces the goal
     upright=0.2,   # torso upright
     height=0.2,    # keep hip height
-    alive=0.1,     # small reward for each step alive
+    alive=0.5,     # small reward for each step alive
     action=0.01,   # penalty on squared action (energy)
     smooth=0.02,   # penalty on action change between steps (jerk)
     ang_vel=0.02,  # penalty on torso swaying about the horizontal axes
@@ -173,16 +173,19 @@ class BipedEnv(gym.Env):
         self.current_push = np.zeros(3)  # force currently applied, used to draw the arrow when recording video
 
     # ------------------------------------------------------------------ difficulty config
-    def set_difficulty(self, push_max, terrain):
+    def set_difficulty(self, push_max, terrain, speed=None):
         """Called via VecEnv.env_method to raise difficulty per the curriculum. Takes effect from the next reset.
 
         `terrain`: roughness (m) for scene "field", or challenge difficulty [0, 1] for scene "course".
+        `speed`: commanded walking speed (m/s); None keeps the current one.
         """
         self.push_max = float(push_max)
         if self.scene == "course":
             self.challenge_level = float(terrain)
         else:
             self.roughness = float(terrain)
+        if speed is not None:
+            self.target_speed = float(speed)
 
     # ------------------------------------------------------------------ terrain
     def _hf_array(self):
