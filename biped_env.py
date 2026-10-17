@@ -45,6 +45,8 @@ TERRAIN_GEOM = "terrain"
 # Fall threshold based on pelvis height relative to the feet (upright G1 is about 0.75 m)
 FALL_HEIGHT = 0.45
 FULL_HEIGHT = 0.70
+AIR_TIME_TARGET = 0.4   # s, a step shorter than this earns no air-time reward
+MIN_GAIT_SPEED = 0.1    # m/s, below this target speed the gait terms are off
 MIN_CLEARANCE = 0.30   # pelvis this far below the ground right under it counts as a fall (fell into a pit)
 
 # Height observation grid, in the robot's heading frame (m): front/back x left/right
@@ -63,6 +65,8 @@ DEFAULT_REWARD_SCALES = dict(
     vz=0.05,       # penalty on bouncing up and down
     reach=5.0,     # reward for reaching the goal
     fall=5.0,      # penalty for falling
+    air_time=1.0,  # reward per touchdown for steps longer than 0.4 s
+    slip=0.1,      # penalty on feet sliding while in contact
 )
 
 
@@ -319,6 +323,8 @@ class BipedEnv(gym.Env):
         mujoco.mj_forward(m, d)
         d.qpos[2] += self._ground_z(*start_xy) + 0.005 - self._foot_min_z()
         mujoco.mj_forward(m, d)
+        self._air_time = np.zeros(2)
+        self._foot_xy = np.array([d.xpos[b][:2] for b in self.foot_bodies])
 
         if course:
             self._target = np.array([self._course["goal_x"], 0.0])
@@ -408,6 +414,15 @@ class BipedEnv(gym.Env):
         z = self._ground_z(*self._target) + 0.3
         self.data.mocap_pos[0] = [self._target[0], self._target[1], z]
 
+    def _air_time_reward(self, contacts):
+        first = (contacts > 0) & (self._air_time > 0)   # touchdown this step
+        r = float(np.sum((self._air_time - AIR_TIME_TARGET) * first))
+        self._air_time = np.where(contacts > 0, 0.0, self._air_time + self.dt)
+        return r if self.target_speed >= MIN_GAIT_SPEED else 0.0
+
+    def _slip_penalty(self, contacts, foot_vel_xy):
+        return float(np.sum(contacts * np.sum(foot_vel_xy ** 2, axis=1)))
+
     # ------------------------------------------------------------------ step
     def step(self, action):
         a = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
@@ -439,6 +454,13 @@ class BipedEnv(gym.Env):
         h = self._heading()
         cos_head = float(h @ dir_w)
 
+        foot_xy = np.array([d.xpos[b][:2] for b in self.foot_bodies])
+        foot_vel_xy = (foot_xy - self._foot_xy) / self.dt
+        self._foot_xy = foot_xy
+        contacts = self._foot_contacts()
+        air = self._air_time_reward(contacts)
+        slip = self._slip_penalty(contacts, foot_vel_xy)
+
         sc = self.scales
         reward = (
             sc["vel"] * np.exp(-4.0 * (self.target_speed - v_toward) ** 2)
@@ -450,6 +472,8 @@ class BipedEnv(gym.Env):
             - sc["smooth"] * float(np.sum((a - self._prev_action) ** 2))
             - sc["ang_vel"] * float(np.sum(d.qvel[3:5] ** 2))
             - sc["vz"] * float(d.qvel[2] ** 2)
+            + sc["air_time"] * air
+            - sc["slip"] * slip
         )
         smooth_abs = float(np.mean(np.abs(a - self._prev_action)))
         self._prev_action = a
@@ -486,5 +510,7 @@ class BipedEnv(gym.Env):
             "path": self._path,
             "total_energy": self._energy,
             "x": float(d.qpos[0]),
+            "air_time": air,
+            "slip": slip,
         }
         return self._obs(), float(reward), terminated, truncated, info
