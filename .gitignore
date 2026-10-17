@@ -1,0 +1,8 @@
+venv/
+runs/
+eval/
+previews/
+__pycache__/
+*.mp4
+*.gif
+.superpowers/
