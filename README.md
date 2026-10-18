@@ -62,7 +62,7 @@ Reward term names are in `DEFAULT_REWARD_SCALES` in `biped_rl/env.py`.
 
 ### Training on Kaggle
 
-`kaggle/train_kaggle.ipynb` resumes a run from its newest checkpoint on a Kaggle machine (more RAM, runs unattended up to 12 h). Zip `biped_rl/ scripts/ assets/ runs/<name>/ pyproject.toml requirements.txt`, upload it as a Kaggle Dataset, attach it to the notebook, turn Internet on, edit `RUN`/`START_LEVEL`/`STEPS` in the first cell, then *Save & Run All*. Download `<name>_out.zip` from Output and unzip it into `runs/`. The physics runs on the CPU, so a GPU accelerator does not speed this up; GPU training needs the MJX port (stage 2).
+`kaggle/train_kaggle.ipynb` clones this repo from GitHub and trains on a Kaggle machine (more RAM, runs unattended). Push the branch first, import the notebook, turn Internet on, edit `REPO_URL`/`BRANCH`/`RUN`/`START_LEVEL`/`STEPS` in the first cell (private repo: add a `GITHUB_TOKEN` Kaggle secret), then *Save & Run All*. Checkpoints are gitignored, so to continue a run, upload its newest `ckpt_<N>_steps.zip` + `ckpt_vecnormalize_<N>_steps.pkl` as a small Kaggle Dataset and attach it; without one it trains from scratch. It stops itself at `MAX_HOURS` (11; Kaggle kills at 12 h) and still saves. Download `<name>_out.zip` from Output and unzip it into `runs/`. The physics runs on the CPU, so a GPU accelerator does not speed this up; GPU training needs the MJX port (stage 2).
 
 ## Evaluation
 
