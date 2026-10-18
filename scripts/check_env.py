@@ -9,8 +9,8 @@ import time
 import numpy as np
 from stable_baselines3.common.env_checker import check_env
 
-import terrains
-from biped_env import BipedEnv
+from biped_rl import terrains
+from biped_rl.env import BipedEnv
 
 
 def stand_with_ankle_feedback(kp_scale=4.0, seconds=8.0, k=10.0, kd=1.0):

@@ -1,7 +1,7 @@
 """Renders preview images of the challenges at several difficulty levels (no policy needed).
 
-  python preview_terrains.py --out previews
-  python preview_terrains.py --kinds stairs gaps --levels 0 0.5 1
+  python scripts/preview_terrains.py --out previews
+  python scripts/preview_terrains.py --kinds stairs gaps --levels 0 0.5 1
 
 One PNG per challenge, one row per difficulty level. The robot stands at the start, the red sphere is the goal.
 Linux and Kaggle need MUJOCO_GL=egl.
@@ -13,13 +13,13 @@ import imageio
 import mujoco
 import numpy as np
 
-import terrains
-from biped_env import BipedEnv
+from biped_rl import terrains
+from biped_rl.env import BipedEnv
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--out", default="previews")
+    p.add_argument("--out", default="outputs/previews")
     p.add_argument("--kinds", nargs="*", default=terrains.KINDS + ["mixed"])
     p.add_argument("--levels", type=float, nargs="*", default=[0.0, 0.5, 1.0])
     p.add_argument("--width", type=int, default=1500)

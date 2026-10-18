@@ -5,13 +5,13 @@ Two modes:
   --scene course : challenge corridor (slope, stairs, gap, stepping stones, obstacle, beam), curriculum over difficulty.
 
 Examples:
-  python train_sb3.py --name run1 --total-steps 20000000 --n-envs 8
-  python train_sb3.py --name no_smooth --scale smooth=0            # ablation of one reward term
-  python train_sb3.py --name flat_only --no-curriculum --level 3   # baseline trained on flat ground only
-  python train_sb3.py --name stiff --kp-scale 3                     # stiffer PD, easier to learn standing, less realistic
-  python train_sb3.py --name stairs1 --scene course --challenge stairs --height-scan \\
+  python scripts/train.py --name run1 --total-steps 20000000 --n-envs 8
+  python scripts/train.py --name no_smooth --scale smooth=0            # ablation of one reward term
+  python scripts/train.py --name flat_only --no-curriculum --level 3   # baseline trained on flat ground only
+  python scripts/train.py --name stiff --kp-scale 3                     # stiffer PD, easier to learn standing, less realistic
+  python scripts/train.py --name stairs1 --scene course --challenge stairs --height-scan \\
          --resume runs/run1/latest.zip                              # keep fine-tuning on stairs
-  python train_sb3.py --name run1 --resume runs/run1/latest.zip --start-level 5
+  python scripts/train.py --name run1 --resume runs/run1/latest.zip --start-level 5
 
 Note: enabling --height-scan changes the observation dimension (50 -> 85), so you cannot resume from a policy
 trained without the height sensor.
@@ -29,7 +29,7 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 
-from biped_env import BipedEnv
+from biped_rl.env import BipedEnv
 
 # (push_max N*s, terrain, speed m/s). For scene field, terrain is roughness (m). For scene course, it is difficulty [0, 1].
 # The field curriculum first teaches standing, then walking speeds, then pushes and roughness. Adjust based on actual results.
@@ -49,10 +49,12 @@ LEVELS_FIELD = [
 LEVELS_COURSE = [(0.0, lv, 1.0) for lv in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)]  # resumed from a walking policy
 
 
-def make_env(rank, seed, env_kwargs):
+def make_env(rank, seed, env_kwargs, log_dir=None, append=False):
     def _init():
         env = BipedEnv(**env_kwargs)
-        env = Monitor(env, info_keywords=("fell", "n_reached", "path"))
+        log = os.path.join(log_dir, f"monitor_{rank}") if log_dir else None  # one CSV row per episode
+        env = Monitor(env, filename=log, info_keywords=("fell", "n_reached", "path"),
+                      override_existing=not append)  # append when resuming into the same run folder
         env.reset(seed=seed + rank)
         return env
     return _init
@@ -138,9 +140,10 @@ def main():
                       challenge=args.challenge, height_scan=args.height_scan,
                       scan_noise=args.scan_noise if args.height_scan else 0.0)
     with open(os.path.join(out_dir, "env_kwargs.json"), "w") as f:
-        json.dump(env_kwargs, f, indent=2)  # evaluate.py and render_video.py read this back to use the right configuration
+        json.dump(env_kwargs, f, indent=2)  # scripts/evaluate.py and scripts/render_video.py read this back to use the right configuration
+    same_dir = bool(args.resume) and os.path.dirname(os.path.abspath(args.resume)) == os.path.abspath(out_dir)
     Vec = DummyVecEnv if args.dummy_vec else SubprocVecEnv
-    venv = Vec([make_env(i, args.seed, env_kwargs) for i in range(args.n_envs)])
+    venv = Vec([make_env(i, args.seed, env_kwargs, log_dir=out_dir, append=same_dir) for i in range(args.n_envs)])
     stats_path = os.path.join(out_dir, "vecnormalize.pkl")
     if args.resume:
         src_stats = os.path.join(os.path.dirname(os.path.abspath(args.resume)), "vecnormalize.pkl")

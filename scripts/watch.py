@@ -1,10 +1,10 @@
 """Live viewer: watch the policy walk in a MuJoCo window while training runs in another terminal.
 
 Examples:
-  python watch.py --run runs/run1
-  python watch.py --run runs/run1 --push 40 --roughness 0.04
+  python scripts/watch.py --run runs/run1
+  python scripts/watch.py --run runs/run1 --push 40 --roughness 0.04
 
-Follows the newest ckpt_*_steps.zip written by train_sb3.py (falls back to latest.zip). Close the window to quit.
+Follows the newest ckpt_*_steps.zip written by scripts/train.py (falls back to latest.zip). Close the window to quit.
 To livestream to YouTube/Twitch, capture this window with OBS.
 """
 import argparse
@@ -15,7 +15,7 @@ import time
 import mujoco
 import mujoco.viewer
 
-from biped_env import BipedEnv
+from biped_rl.env import BipedEnv
 from evaluate import load_env_kwargs, load_policy, load_train_scene
 
 

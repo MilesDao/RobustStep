@@ -1,7 +1,5 @@
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
-from biped_env import BipedEnv, DEFAULT_REWARD_SCALES
+from biped_rl.env import BipedEnv, DEFAULT_REWARD_SCALES
 
 def make(**kw):
     env = BipedEnv(randomize=False, **kw)

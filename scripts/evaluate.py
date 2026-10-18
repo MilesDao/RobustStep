@@ -7,7 +7,7 @@ Two tests, each configuration run over many episodes with different seeds:
               Reports goal-reach rate, fall rate, time to goal, cost of transport, action jerk.
 
 Examples:
-  python evaluate.py --model runs/run1/latest.zip --stats runs/run1/vecnormalize.pkl --label full --out eval/full
+  python scripts/evaluate.py --model runs/run1/latest.zip --stats runs/run1/vecnormalize.pkl --label full --out eval/full
 """
 import argparse
 import csv
@@ -21,7 +21,7 @@ import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-from biped_env import BipedEnv
+from biped_rl.env import BipedEnv
 
 
 def load_env_kwargs(stats_path):
@@ -35,7 +35,7 @@ def load_env_kwargs(stats_path):
 
 
 def load_train_scene(stats_path):
-    """Scene used during training ("field" or "course"), used as the default for render_video.py."""
+    """Scene used during training ("field" or "course"), used as the default for scripts/render_video.py."""
     p = os.path.join(os.path.dirname(os.path.abspath(stats_path)), "env_kwargs.json")
     if os.path.exists(p):
         with open(p) as f:
@@ -129,7 +129,7 @@ def main():
     p.add_argument("--model", required=True)
     p.add_argument("--stats", required=True)
     p.add_argument("--label", default="policy")
-    p.add_argument("--out", default="eval")
+    p.add_argument("--out", default="outputs/eval")
     p.add_argument("--episodes", type=int, default=30)
     p.add_argument("--max-impulse", type=float, default=100.0)
     p.add_argument("--impulse-step", type=float, default=10.0)

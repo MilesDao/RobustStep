@@ -5,7 +5,7 @@ goal-reach rate, fall rate, distance covered, time to goal, cost of transport,
 and the difficulty level (with physical parameters) at which the goal-reach rate drops to 50%.
 
 Examples:
-  python evaluate_challenges.py --model runs/stairs1/latest.zip --stats runs/stairs1/vecnormalize.pkl \\
+  python scripts/evaluate_challenges.py --model runs/stairs1/latest.zip --stats runs/stairs1/vecnormalize.pkl \\
       --kinds stairs gaps slope --label stairs1 --out eval/stairs1
 """
 import argparse
@@ -18,8 +18,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-import terrains
-from biped_env import BipedEnv
+from biped_rl import terrains
+from biped_rl.env import BipedEnv
 from evaluate import cot, load_env_kwargs, load_policy, run_episode
 
 
@@ -46,7 +46,7 @@ def main():
     p.add_argument("--model", required=True)
     p.add_argument("--stats", required=True)
     p.add_argument("--label", default="policy")
-    p.add_argument("--out", default="eval_challenges")
+    p.add_argument("--out", default="outputs/eval_challenges")
     p.add_argument("--kinds", nargs="*", default=terrains.KINDS)
     p.add_argument("--levels", type=float, nargs="*", default=[0.0, 0.25, 0.5, 0.75, 1.0])
     p.add_argument("--episodes", type=int, default=20)

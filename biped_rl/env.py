@@ -1,6 +1,6 @@
 """Gymnasium environment: Unitree G1 walking to a goal in MuJoCo.
 
-The G1 model comes from MuJoCo Menagerie (MJX version, simple colliders, realistic PD gains), see the g1/ folder.
+The G1 model comes from MuJoCo Menagerie (MJX version, simple colliders, realistic PD gains), see assets/g1/.
 The policy controls the 12 leg joints. The waist and arms are held at the keyframe "home" pose.
 Action in [-1, 1] is converted to a target joint angle around the standing pose LEG_Q_DEF, then MuJoCo's PD produces torque.
 The policy runs at 50 Hz (timestep 0.004 s, frame_skip 5).
@@ -18,12 +18,12 @@ import numpy as np
 from gymnasium import spaces
 from scipy.ndimage import gaussian_filter
 
-import terrains
+from biped_rl import terrains
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SCENES = {
-    "field": os.path.join(_HERE, "g1", "scene_g1.xml"),
-    "course": os.path.join(_HERE, "g1", "scene_g1_course.xml"),
+    "field": os.path.join(_HERE, "..", "assets", "g1", "scene_g1.xml"),
+    "course": os.path.join(_HERE, "..", "assets", "g1", "scene_g1_course.xml"),
 }
 COURSE_BASE = 0.5  # base ground height (m) of the corridor in the hfield, leaving room for deep pits
 

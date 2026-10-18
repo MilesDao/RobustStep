@@ -1,6 +1,5 @@
-import os, sys, types
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from train_sb3 import LEVELS_FIELD, LEVELS_COURSE, CurriculumCallback
+import types
+from train import LEVELS_FIELD, LEVELS_COURSE, CurriculumCallback
 
 
 class FakeVecEnv:
