@@ -20,6 +20,7 @@
 - Network sizes match the CPU run: policy (256, 256), value (256, 256). Discount 0.99, GAE lambda 0.95, clip 0.2.
 - Curriculum gate identical to `CurriculumCallback`: survival ≥ 0.9 and, when speed > 0, mean `path / (len * DT)` ≥ 0.7 × speed.
 - GPU-only deps go in a new `requirements-gpu.txt`; `requirements.txt` stays CPU-only. Tests that need JAX start with `pytest.importorskip("mujoco.mjx")` and `pytest.importorskip("mujoco_playground")` so the CPU suite stays green without them.
+- **Kaggle kills a session at 12 h** and work not on disk is lost. Training must (a) save params + `progress.csv` after every chunk, (b) not start a chunk that would end past `--max-hours` (default 11), (c) continue from the run folder in the next session with the same command (level and step count read back from `progress.csv`). A chunk must fit well inside the budget: default `--chunk-steps` 10_000_000.
 - Pin exact versions in `requirements-gpu.txt` to what Task 1 resolves; `mujoco` and `mujoco-mjx` must be the same version.
 
 ## Review Focus
@@ -29,6 +30,7 @@
 3. `kp_scale` must scale both `actuator_gainprm[:,0]` and `actuator_biasprm[:,1]` on the model MJX actually uses, including after domain randomization. Test in Task 4.
 4. A `.params` file must load and act on a machine with CPU-only JAX (Kaggle-trained, laptop-evaluated). Test in Task 6.
 5. Gate math with an empty or zero-length eval batch must not divide by zero and must not pass the gate. Test in Task 5.
+6. A session that ends at the time budget, then reruns the same command, must resume at the saved level and step count (not level 0, not overwrite `progress.csv`). Test in Task 5.
 
 ---
 
@@ -223,7 +225,9 @@ def test_domain_randomize_keeps_kp_scale_and_varies_mass():
   - `gate_passed(stats, speed, survive_threshold=0.9, track_ratio=0.7) -> bool`.
   - `eval_rollout(env, inference_fn, rng, n_envs=256, steps=1000) -> (fell, path, length)` — deterministic, jitted, vmapped, stops counting an env after its first `done`.
   - Files in `runs/<name>/`: `env_kwargs.json` (`{"backend": "mjx", "kp_scale": ..., "scene": "field", "height_scan": false}`), `stage_<k>_<steps>.params` after each chunk, `latest.params`, `progress.csv` (`steps,level,speed,survival,track,eval_reward`).
-  - CLI: `--name`, `--kp-scale` 1.0, `--start-level` 0, `--max-level` 4, `--chunk-steps` 20_000_000, `--total-steps` 200_000_000, `--num-envs` 2048, `--resume <path.params>`, `--seed` 0, `--no-randomize`.
+  - `resume_state(run_dir) -> (params_path | None, level: int, steps: int)` — from the last `progress.csv` row and `latest.params`; `(None, start_level, 0)` when the folder has neither. The level is the one to train next (advanced if that row passed the gate).
+  - `fits_budget(elapsed_h, last_chunk_h, max_hours) -> bool` — True when `elapsed_h + 1.2 * last_chunk_h <= max_hours` (20% margin; first chunk uses `last_chunk_h = 0`, ponytail: assumes chunk 1 alone fits, true at 10M steps unless throughput < 300 steps/s).
+  - CLI: `--name`, `--kp-scale` 1.0, `--start-level` 0, `--max-level` 4, `--chunk-steps` 10_000_000, `--total-steps` 200_000_000, `--num-envs` 2048, `--max-hours` 11.0, `--seed` 0, `--no-randomize`. Rerunning with the same `--name` resumes automatically (no `--resume` flag); `--kp-scale` must match `env_kwargs.json` or the script exits with an error.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -238,11 +242,24 @@ def test_gate_stats_and_pass():
 def test_gate_empty_batch_does_not_pass():
     s = gate_stats(np.array([]), np.array([]), np.array([]))
     assert s == dict(survival=0.0, track=0.0) and not gate_passed(s, 0.0)
+
+def test_resume_state_reads_last_row(tmp_path):
+    assert resume_state(tmp_path) == (None, 0, 0)
+    (tmp_path / "latest.params").write_bytes(b"x")
+    (tmp_path / "progress.csv").write_text(
+        "steps,level,speed,survival,track,eval_reward,passed\n10000000,0,0.0,0.95,0.0,400,1\n20000000,1,0.3,0.5,0.1,300,0\n")
+    assert resume_state(tmp_path) == (str(tmp_path / "latest.params"), 1, 20000000)
+
+def test_fits_budget():
+    assert fits_budget(0.0, 0.0, 11.0)
+    assert fits_budget(9.0, 1.5, 11.0)          # 9 + 1.8 = 10.8
+    assert not fits_budget(9.5, 1.5, 11.0)      # 9.5 + 1.8 = 11.3
 ```
+(`progress.csv` therefore has a `passed` column after `eval_reward`.)
 
 - [ ] **Step 2: Run, expect FAIL.**
 
-- [ ] **Step 3: Implement.** Loop: build `BipedMjxEnv` for the current level (`push_max, _, speed = LEVELS_FIELD[level]`), call `brax.training.agents.ppo.train.train(environment=env, num_timesteps=chunk, num_envs, episode_length=1000, action_repeat=1, unroll_length=20, batch_size=256, num_minibatches=32, num_updates_per_batch=4, learning_rate=3e-4, entropy_cost=0.005, discount=0.99, gae_lambda=0.95, clipping_epsilon=0.2, normalize_observations=True, reward_scaling=1.0, network_factory=partial(ppo_networks.make_ppo_networks, policy_hidden_layer_sizes=(256,256), value_hidden_layer_sizes=(256,256)), wrap_env_fn=wrapper.wrap_for_brax_training, randomization_fn=None if --no-randomize else domain_randomize, restore_params=params, progress_fn=print_row, seed)`; then `eval_rollout` → `gate_stats` → append `progress.csv` → save params with `brax.io.model.save_params` → advance level if `gate_passed` and `level < max_level`; stop at `total_steps`. If the installed brax has no `restore_params` argument, ledger a Ruling and use `save_checkpoint_path`/`restore_checkpoint_path` instead.
+- [ ] **Step 3: Implement.** Loop: build `BipedMjxEnv` for the current level (`push_max, _, speed = LEVELS_FIELD[level]`), call `brax.training.agents.ppo.train.train(environment=env, num_timesteps=chunk, num_envs, episode_length=1000, action_repeat=1, unroll_length=20, batch_size=256, num_minibatches=32, num_updates_per_batch=4, learning_rate=3e-4, entropy_cost=0.005, discount=0.99, gae_lambda=0.95, clipping_epsilon=0.2, normalize_observations=True, reward_scaling=1.0, network_factory=partial(ppo_networks.make_ppo_networks, policy_hidden_layer_sizes=(256,256), value_hidden_layer_sizes=(256,256)), wrap_env_fn=wrapper.wrap_for_brax_training, randomization_fn=None if --no-randomize else domain_randomize, restore_params=params, progress_fn=print_row, seed)`; then `eval_rollout` → `gate_stats` → append `progress.csv` → save params with `brax.io.model.save_params` → advance level if `gate_passed` and `level < max_level`; stop at `total_steps`, or when `fits_budget(elapsed, last_chunk, max_hours)` is False (print `"time budget reached at <h> h, rerun the same command to continue"`). Start: `resume_state(run_dir)` gives params, level and step count; append to `progress.csv`, never overwrite. Wall time starts at script start, so JIT compile counts against the budget. If the installed brax has no `restore_params` argument, ledger a Ruling and use `save_checkpoint_path`/`restore_checkpoint_path` instead.
 
 - [ ] **Step 4: Run tests, expect PASS.** Then a CPU smoke run:
 
@@ -295,9 +312,9 @@ Expected: an MP4 is written (the policy is untrained; it falls — that's fine).
 **Interfaces:**
 - Consumes: `requirements-gpu.txt`, `scripts/train_mjx.py` CLI.
 
-- [ ] **Step 1: Notebook cells** (same style as `kaggle/train_kaggle.ipynb`): locate dataset + copy to `/kaggle/working/biped_rl`; `pip install -q -r requirements-gpu.txt && pip install -q -e . --no-deps`; `import jax; print(jax.devices())` must show a CUDA device (assert it); set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, `MUJOCO_GL=egl`; run `python scripts/train_mjx.py --name mjx_walk --kp-scale 3 --num-envs 2048 --total-steps 200000000 | tee runs/mjx_walk/train.log`; zip `runs/mjx_walk` to Output. Accelerator: GPU T4 x2 or P100 (uses one GPU).
+- [ ] **Step 1: Notebook cells** (same style as `kaggle/train_kaggle.ipynb`): locate dataset + copy to `/kaggle/working/biped_rl`; `pip install -q -r requirements-gpu.txt && pip install -q -e . --no-deps`; `import jax; print(jax.devices())` must show a CUDA device (assert it); set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, `MUJOCO_GL=egl`; if a previous session's `mjx_walk_out.zip` is attached as a second input, unzip it into `runs/` first (that is how session 2 continues session 1); run `timeout --signal=INT 11.5h python scripts/train_mjx.py --name mjx_walk --kp-scale 3 --num-envs 2048 --total-steps 200000000 --max-hours 11 | tee -a runs/mjx_walk/train.log` (`--max-hours` is the real stop; `timeout` is only a backstop if a chunk overruns); zip `runs/mjx_walk` to Output as `mjx_walk_out.zip`. The zip cell must run even after the timeout, so the train cell must not raise (`!` shell cells don't). Accelerator: GPU T4 x2 or P100 (uses one GPU).
 
-- [ ] **Step 2: README section:** what it trains (levels 0-4 only), the Kaggle steps, how to evaluate locally: `python scripts/evaluate.py --model runs/mjx_walk/latest.params --stats runs/mjx_walk/latest.params --label mjx --out outputs/eval/mjx` (needs `pip install jax brax` in the local venv), and that SB3 checkpoints and `.params` are not interchangeable.
+- [ ] **Step 2: README section:** what it trains (levels 0-4 only), the Kaggle steps, the 12 h limit and how to continue in a new session (download `mjx_walk_out.zip`, re-upload as a dataset version, attach, rerun), how to evaluate locally: `python scripts/evaluate.py --model runs/mjx_walk/latest.params --stats runs/mjx_walk/latest.params --label mjx --out outputs/eval/mjx` (needs `pip install jax brax` in the local venv), and that SB3 checkpoints and `.params` are not interchangeable.
 
 - [ ] **Step 3: Measure on Kaggle (user runs it):** record steps/s from the first `progress_fn` rows and wall time per 20M chunk in the README. Expected: well above the CPU's ~1,000 steps/s; if below 10,000, lower `--num-envs` to 1024 and check `jax.devices()`.
 
