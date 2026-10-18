@@ -7,11 +7,11 @@ Two modes:
 Examples:
   python train_sb3.py --name run1 --total-steps 20000000 --n-envs 8
   python train_sb3.py --name no_smooth --scale smooth=0            # ablation of one reward term
-  python train_sb3.py --name flat_only --no-curriculum --level 0   # baseline trained on flat ground only
+  python train_sb3.py --name flat_only --no-curriculum --level 3   # baseline trained on flat ground only
   python train_sb3.py --name stiff --kp-scale 3                     # stiffer PD, easier to learn standing, less realistic
   python train_sb3.py --name stairs1 --scene course --challenge stairs --height-scan \\
          --resume runs/run1/latest.zip                              # keep fine-tuning on stairs
-  python train_sb3.py --name run1 --resume runs/run1/latest.zip --start-level 2
+  python train_sb3.py --name run1 --resume runs/run1/latest.zip --start-level 5
 
 Note: enabling --height-scan changes the observation dimension (50 -> 85), so you cannot resume from a policy
 trained without the height sensor.
@@ -33,6 +33,8 @@ from biped_env import BipedEnv
 
 # (push_max N*s, terrain, speed m/s). For scene field, terrain is roughness (m). For scene course, it is difficulty [0, 1].
 # The field curriculum first teaches standing, then walking speeds, then pushes and roughness. Adjust based on actual results.
+DT = 0.02  # policy step, s
+
 LEVELS_FIELD = [
     (0.0, 0.00, 0.0),    # stand still
     (0.0, 0.00, 0.3),
@@ -50,7 +52,7 @@ LEVELS_COURSE = [(0.0, lv, 1.0) for lv in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)]  # res
 def make_env(rank, seed, env_kwargs):
     def _init():
         env = BipedEnv(**env_kwargs)
-        env = Monitor(env, info_keywords=("fell", "n_reached"))
+        env = Monitor(env, info_keywords=("fell", "n_reached", "path"))
         env.reset(seed=seed + rank)
         return env
     return _init
@@ -59,12 +61,13 @@ def make_env(rank, seed, env_kwargs):
 class CurriculumCallback(BaseCallback):
     """Raise the level when the no-fall episode rate over the last 50 episodes reaches the threshold."""
 
-    def __init__(self, levels, start_level=0, survive_threshold=0.9, min_episodes=50, verbose=1):
+    def __init__(self, levels, start_level=0, survive_threshold=0.9, min_episodes=50, track_ratio=0.7, verbose=1):
         super().__init__(verbose)
         self.levels = levels
         self.level = start_level
         self.survive_threshold = survive_threshold
         self.min_episodes = min_episodes
+        self.track_ratio = track_ratio
 
     def _apply(self):
         push, terrain, speed = self.levels[self.level]
@@ -87,7 +90,11 @@ class CurriculumCallback(BaseCallback):
         recent = list(buf)[-self.min_episodes:]
         survive = 1.0 - float(np.mean([e["fell"] for e in recent]))
         self.logger.record("curriculum/survival_recent", survive)
-        if survive >= self.survive_threshold:
+        speed = self.levels[self.level][2]
+        track = float(np.mean([e["path"] / (e["l"] * DT) for e in recent]))
+        if speed > 0:  # standing still must not pass a walking level
+            self.logger.record("curriculum/track_recent", track)
+        if survive >= self.survive_threshold and (speed == 0 or track >= self.track_ratio * speed):
             self.level += 1
             buf.clear()
             self._apply()

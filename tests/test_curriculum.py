@@ -23,3 +23,27 @@ def test_apply_passes_speed():
     cb.model = types.SimpleNamespace(get_env=lambda: fake)
     cb._apply()
     assert fake.calls == [("set_difficulty", 0.0, 0.0, 0.3)]
+
+
+class FakeLogger:
+    def record(self, k, v): pass
+
+
+def _gate(level, path):
+    cb = CurriculumCallback(LEVELS_FIELD, start_level=level, verbose=0)
+    buf = [{"fell": 0, "l": 1000, "path": path} for _ in range(50)]
+    cb.model = types.SimpleNamespace(get_env=lambda: FakeVecEnv(), ep_info_buffer=buf, logger=FakeLogger())
+    cb._on_rollout_end()
+    return cb.level
+
+
+def test_gate_blocks_standing_at_walking_speed():
+    assert _gate(1, 0.0) == 1
+
+
+def test_gate_advances_when_tracking():
+    assert _gate(1, 6.0) == 2
+
+
+def test_gate_survival_only_at_speed_zero():
+    assert _gate(0, 0.0) == 1

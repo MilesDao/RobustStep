@@ -58,7 +58,7 @@ DEFAULT_REWARD_SCALES = dict(
     heading=0.3,   # torso faces the goal
     upright=0.2,   # torso upright
     height=0.2,    # keep hip height
-    alive=0.5,     # small reward for each step alive
+    alive=0.5,     # reward for each step alive
     action=0.01,   # penalty on squared action (energy)
     smooth=0.02,   # penalty on action change between steps (jerk)
     ang_vel=0.02,  # penalty on torso swaying about the horizontal axes
@@ -178,7 +178,7 @@ class BipedEnv(gym.Env):
 
     # ------------------------------------------------------------------ difficulty config
     def set_difficulty(self, push_max, terrain, speed=None):
-        """Called via VecEnv.env_method to raise difficulty per the curriculum. Takes effect from the next reset.
+        """Called via VecEnv.env_method to raise difficulty per the curriculum. `push` and `terrain` take effect from the next reset; `speed` takes effect immediately.
 
         `terrain`: roughness (m) for scene "field", or challenge difficulty [0, 1] for scene "course".
         `speed`: commanded walking speed (m/s); None keeps the current one.
@@ -324,6 +324,8 @@ class BipedEnv(gym.Env):
         d.qpos[2] += self._ground_z(*start_xy) + 0.005 - self._foot_min_z()
         mujoco.mj_forward(m, d)
         self._air_time = np.zeros(2)
+        self._was_in_contact = np.zeros(2, dtype=bool)  # feet start just above ground; no touchdown before first contact
+        self._prev_contacts = self._foot_contacts()
         self._foot_xy = np.array([d.xpos[b][:2] for b in self.foot_bodies])
 
         if course:
@@ -415,7 +417,8 @@ class BipedEnv(gym.Env):
         self.data.mocap_pos[0] = [self._target[0], self._target[1], z]
 
     def _air_time_reward(self, contacts):
-        first = (contacts > 0) & (self._air_time > 0)   # touchdown this step
+        first = (contacts > 0) & (self._air_time > 0) & self._was_in_contact   # touchdown this step
+        self._was_in_contact |= contacts > 0
         r = float(np.sum((self._air_time - AIR_TIME_TARGET) * first))
         self._air_time = np.where(contacts > 0, 0.0, self._air_time + self.dt)
         return r if self.target_speed >= MIN_GAIT_SPEED else 0.0
@@ -459,7 +462,8 @@ class BipedEnv(gym.Env):
         self._foot_xy = foot_xy
         contacts = self._foot_contacts()
         air = self._air_time_reward(contacts)
-        slip = self._slip_penalty(contacts, foot_vel_xy)
+        slip = self._slip_penalty(contacts * self._prev_contacts, foot_vel_xy)   # in contact at both ends of the step
+        self._prev_contacts = contacts
 
         sc = self.scales
         reward = (

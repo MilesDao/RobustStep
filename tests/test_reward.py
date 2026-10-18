@@ -29,10 +29,17 @@ def test_air_time_rewards_long_steps_only_when_walking():
     env = make()
     env.target_speed = 1.0
     env._air_time = np.zeros(2)
+    env._air_time_reward(np.array([1.0, 1.0]))            # both feet have touched ground once
     for _ in range(25):                                   # left foot airborne 0.5 s
         assert env._air_time_reward(np.array([0.0, 1.0])) == 0.0
     assert np.isclose(env._air_time_reward(np.array([1.0, 1.0])), 0.5 - 0.4)
     assert env._air_time_reward(np.array([1.0, 1.0])) == 0.0   # no new touchdown
+
+def test_no_air_time_penalty_on_initial_landing():
+    env = make()
+    env.target_speed = 1.0
+    assert env._air_time_reward(np.array([0.0, 0.0])) == 0.0
+    assert env._air_time_reward(np.array([1.0, 1.0])) == 0.0
 
 def test_air_time_zero_when_standing():
     env = make()

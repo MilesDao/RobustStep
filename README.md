@@ -27,7 +27,7 @@ python train_sb3.py --name run1 --total-steps 20000000 --n-envs 8
 tensorboard --logdir runs/run1/tb
 ```
 
-- The curriculum raises the level automatically when the no-fall rate over the last 50 episodes reaches 90%. The field curriculum first teaches standing (0 m/s), then walking at 0.3 / 0.6 / 1.0 m/s, then pushes and roughness. The levels are in `LEVELS_FIELD` / `LEVELS_COURSE` in `train_sb3.py` (max push impulse in N·s, roughness in m, speed in m/s).
+- The curriculum raises the level automatically when the no-fall rate over the last 50 episodes reaches 90%. The field curriculum first teaches standing (0 m/s), then walking at 0.3 / 0.6 / 1.0 m/s, then pushes and roughness. The levels are in `LEVELS_FIELD` / `LEVELS_COURSE` in `train_sb3.py` (max push impulse in N·s, roughness in m, speed in m/s). Level indices 0-2 are the standing / slow-walking stages, level 3 is flat walking at 1.0 m/s, and pushes and roughness start at level 4. At speed levels above 0 the gate also requires the robot to cover at least 70% of the commanded distance, so standing still does not advance.
 - Checkpoints, `vecnormalize.pkl` and `env_kwargs.json` are saved in `runs/<name>/`. Evaluation and video rendering read these files back to use the right configuration.
 - Watch the `fps` column in the log to estimate training time on your machine.
 - `--kp-scale` multiplies the PD stiffness of every joint. 1.0 is the realistic gain. Larger values (e.g. 3) give the robot more control authority, so standing may be easier to learn, but it is less realistic. If you use it, state it in the report.
@@ -38,7 +38,7 @@ Ablations and baselines:
 python train_sb3.py --name no_smooth --scale smooth=0
 python train_sb3.py --name no_energy --scale action=0
 python train_sb3.py --name no_air_time --scale air_time=0
-python train_sb3.py --name flat_only --no-curriculum --level 0
+python train_sb3.py --name flat_only --no-curriculum --level 3
 ```
 
 Reward term names are in `DEFAULT_REWARD_SCALES` in `biped_env.py`.
